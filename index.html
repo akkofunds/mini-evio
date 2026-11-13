@@ -136,6 +136,8 @@
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
   document.body.appendChild(renderer.domElement);
 
   // Procedural daytime sky gradient (no external image assets needed)
@@ -185,9 +187,9 @@
     addCloud(Math.cos(a) * r, 70 + rand() * 40, Math.sin(a) * r, 5 + rand() * 6);
   }
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-  scene.add(new THREE.HemisphereLight(0xaed4ff, 0x4f7942, 0.6));
-  const sunLight = new THREE.DirectionalLight(0xfff3d6, 1.05);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+  scene.add(new THREE.HemisphereLight(0xaed4ff, 0x4f7942, 0.4));
+  const sunLight = new THREE.DirectionalLight(0xfff3d6, 0.85);
   sunLight.position.set(80, 120, -60);
   scene.add(sunLight);
 
@@ -427,6 +429,32 @@
     sling.position.set(0.045, 0, -0.46);
     sling.rotation.y = Math.PI / 2;
     group.add(sling);
+
+    // --- First-person hands/forearms so the gun doesn't look like it's floating ---
+    const skinMat = new THREE.MeshLambertMaterial({ color: 0xcf9867 });
+    const sleeveMat = new THREE.MeshLambertMaterial({ color: 0x33363d });
+
+    const rightForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.055, 0.34, 8), sleeveMat);
+    rightForearm.rotation.z = Math.PI / 2 - 0.15;
+    rightForearm.rotation.y = 0.1;
+    rightForearm.position.set(0.045, -0.2, 0.22);
+    group.add(rightForearm);
+
+    const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.08, 0.11), skinMat);
+    rightHand.position.set(0.035, -0.155, 0.11);
+    rightHand.rotation.x = 0.25;
+    group.add(rightHand);
+
+    const leftForearm = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.055, 0.4, 8), sleeveMat);
+    leftForearm.rotation.z = Math.PI / 2 + 0.25;
+    leftForearm.rotation.y = -0.15;
+    leftForearm.position.set(-0.07, 0.0, -0.3);
+    group.add(leftForearm);
+
+    const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.075, 0.12), skinMat);
+    leftHand.position.set(-0.03, -0.02, -0.36);
+    leftHand.rotation.x = 0.15;
+    group.add(leftHand);
 
     const muzzle = new THREE.Object3D();
     muzzle.position.set(0, 0.015, -0.78);
@@ -706,50 +734,62 @@
   // ==========================================================
   function createCharacterModel(color) {
     const group = new THREE.Group();
-    const skin = new THREE.MeshLambertMaterial({ color });
+    const suit = new THREE.MeshLambertMaterial({ color: 0x4a5568 });
     const dark = new THREE.MeshLambertMaterial({ color: 0x1c2230 });
+    const accent = new THREE.MeshLambertMaterial({ color });
+    const skin = new THREE.MeshLambertMaterial({ color: 0xcf9867 });
 
     const hips = new THREE.Group();
     hips.position.y = 1.0;
     group.add(hips);
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.95, 0.45), skin);
+    // Tapered cylinder reads as a rounded torso instead of a flat slab
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.27, 0.9, 10), suit);
     torso.position.y = 0.55;
     hips.add(torso);
 
-    const beltTrim = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.08, 0.48), new THREE.MeshLambertMaterial({ color: 0x2b2b2b }));
-    beltTrim.position.y = 0.08;
+    // Team-color vest patch instead of painting the whole body neon
+    const vest = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.46, 0.08), accent);
+    vest.position.set(0, 0.62, -0.19);
+    hips.add(vest);
+
+    const beltTrim = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.29, 0.08, 10), dark);
+    beltTrim.position.y = 0.1;
     hips.add(beltTrim);
 
     const headGroup = new THREE.Group();
-    headGroup.position.y = 1.18;
+    headGroup.position.y = 1.22;
     hips.add(headGroup);
 
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), skin);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.23, 12, 10), skin);
     headGroup.add(head);
 
-    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.06), new THREE.MeshBasicMaterial({ color: 0xffff00 }));
-    visor.position.set(0, 0.02, -0.22);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.235, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), suit);
+    helmet.position.y = 0.03;
+    headGroup.add(helmet);
+
+    const visor = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.05), new THREE.MeshBasicMaterial({ color: 0x222222 }));
+    visor.position.set(0, -0.01, -0.2);
     headGroup.add(visor);
 
-    function makeLimbPivot(x, y, z, limbLen, mat) {
+    function makeLimbPivot(x, y, z, limbLen, rTop, rBot, mat) {
       const pivot = new THREE.Group();
       pivot.position.set(x, y, z);
-      const limb = new THREE.Mesh(new THREE.BoxGeometry(0.22, limbLen, 0.22), mat);
+      const limb = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, limbLen, 8), mat);
       limb.position.y = -limbLen / 2;
       pivot.add(limb);
       return pivot;
     }
 
-    const leftArm = makeLimbPivot(-0.48, 0.95, 0, 0.75, skin);
-    const rightArm = makeLimbPivot(0.48, 0.95, 0, 0.75, skin);
-    const leftLeg = makeLimbPivot(-0.2, 0.08, 0, 0.9, dark);
-    const rightLeg = makeLimbPivot(0.2, 0.08, 0, 0.9, dark);
+    const leftArm = makeLimbPivot(-0.38, 0.93, 0, 0.7, 0.1, 0.085, suit);
+    const rightArm = makeLimbPivot(0.38, 0.93, 0, 0.7, 0.1, 0.085, suit);
+    const leftLeg = makeLimbPivot(-0.15, 0.1, 0, 0.9, 0.13, 0.1, dark);
+    const rightLeg = makeLimbPivot(0.15, 0.1, 0, 0.9, 0.13, 0.1, dark);
     hips.add(leftArm, rightArm, leftLeg, rightLeg);
 
     // simplified rifle prop for visual flair (not raycast-targeted)
-    const propGun = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.12, 0.5), dark);
-    propGun.position.set(0.1, -0.5, -0.15);
+    const propGun = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.11, 0.48), dark);
+    propGun.position.set(0.07, -0.42, -0.15);
     rightArm.add(propGun);
 
     return { group, torso, head, visor, leftArm, rightArm, leftLeg, rightLeg };
@@ -1084,10 +1124,17 @@
     return { magDrop, magRot, chargePull, gunTilt };
   }
 
-  // Inspect: lift gun toward camera and spin it a full turn to show it off
+  // Inspect: lift gun toward camera, turn it partway to show the side/mag, hold, then turn back
   function inspectCurve(t) {
     const rise = Math.sin(Math.min(t, 1) * Math.PI);
-    const spin = t < 0.85 ? easeInOut(t / 0.85) * Math.PI * 2 : Math.PI * 2;
+    let spin;
+    if (t < 0.3) {
+      spin = easeInOut(t / 0.3) * 2.0; // turn ~115 degrees to show the side
+    } else if (t < 0.7) {
+      spin = 2.0; // hold, showing the magwell/selector side
+    } else {
+      spin = 2.0 * (1 - easeInOut((t - 0.7) / 0.3)); // turn back to center
+    }
     return { rise, spin };
   }
 
@@ -1264,10 +1311,10 @@
       yawDiff = Math.atan2(Math.sin(yawDiff), Math.cos(yawDiff));
       rm.group.rotation.y += yawDiff * Math.min(1, 10 * dt);
 
-      const moveAmt = Math.min(rm.speed / 9, 1);
-      rm.walkPhase += rm.speed * dt * 1.6;
-      const swing = Math.sin(rm.walkPhase) * 0.6 * moveAmt;
-      const swingOpp = Math.sin(rm.walkPhase + Math.PI) * 0.6 * moveAmt;
+      const moveAmt = Math.min(rm.speed / 6, 1);
+      rm.walkPhase += rm.speed * dt * 1.8;
+      const swing = Math.sin(rm.walkPhase) * 0.75 * moveAmt;
+      const swingOpp = Math.sin(rm.walkPhase + Math.PI) * 0.75 * moveAmt;
       rm.leftLeg.rotation.x = swing;
       rm.rightLeg.rotation.x = swingOpp;
       rm.leftArm.rotation.x = swingOpp * 0.7;
