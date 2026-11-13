@@ -47,6 +47,8 @@
     .kill-msg { background: rgba(15, 21, 34, 0.8); padding: 5px 10px; border-radius: 4px; margin-bottom: 4px; border-right: 3px solid #ff3355; }
     #controls-hint { position: absolute; bottom: 22px; right: 25px; font-size: 13px; color: #94a3b8; text-align: right; }
     #click-to-play-banner { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 240, 255, 0.9); color: #090d16; padding: 14px 28px; border-radius: 8px; font-weight: bold; font-size: 18px; cursor: pointer; pointer-events: auto; z-index: 5; }
+    #pause-panel { width: 320px; background: rgba(15,21,34,0.94); backdrop-filter: blur(14px); }
+    #pause-panel .pause-small { color: #94a3b8; font-size: 12px; margin: 4px 0 18px; }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
@@ -83,7 +85,7 @@
   <!-- STEP 3: PAUSE / LOCK SCREEN -->
   <div class="panel" id="pause-panel" style="display: none;">
     <h1>PAUSED</h1>
-    <p class="sub">Party Code: <strong id="pause-code" style="color:#00f0ff;">----</strong></p>
+    <p class="pause-small">ESC to resume • The match continues online</p><p class="sub">Party Code: <strong id="pause-code" style="color:#00f0ff;">----</strong></p>
     <button onclick="enterGameControls()">RESUME MATCH</button>
   </div>
 </div>
@@ -166,12 +168,17 @@
 
   // First-person weapon + GLB assets
   const gunGroup = new THREE.Group();
-  gunGroup.position.set(0.34, -0.31, -0.62);
+  gunGroup.position.set(0.34, -0.30, -0.66);
   camera.add(gunGroup);
+
+  const armsGroup = new THREE.Group();
+  armsGroup.position.set(0, -1.08, -0.78);
+  camera.add(armsGroup);
   scene.add(camera);
 
   let glockModel = null;
   let characterModel = null;
+  let fpsArmsModel = null;
   let assetsReady = false;
   const gltfLoader = new THREE.GLTFLoader();
 
@@ -182,8 +189,111 @@
         o.receiveShadow = true;
         if (o.material) {
           const mats = Array.isArray(o.material) ? o.material : [o.material];
-          mats.forEach(m => { if (m) { m.transparent = false; m.depthWrite = true; } });
+          mats.forEach(m => {
+            if (m) {
+              m.transparent = false;
+              m.depthWrite = true;
+            }
+          });
         }
+      }
+    });
+  }
+
+  function hideCharacterRifle(root) {
+    root.traverse(o => {
+      if (o.name && /rifle/i.test(o.name)) o.visible = false;
+    });
+  }
+
+  // Keep only vertices that are weighted to the character's arm/hand bones.
+  // This lets the supplied character GLB provide the actual FPS hands without
+  // putting the whole body in front of the camera.
+  function makeFPSArms(source) {
+    const clone = THREE.SkeletonUtils.clone(source);
+    clone.traverse(o => {
+      if (!o.isSkinnedMesh) return;
+      const geometry = o.geometry;
+      const skinIndex = geometry.getAttribute('skinIndex');
+      const skinWeight = geometry.getAttribute('skinWeight');
+      const index = geometry.getIndex();
+      if (!skinIndex || !skinWeight) return;
+
+      const armBoneIndices = new Set();
+      o.skeleton.bones.forEach((bone, i) => {
+        if (/shoulder|bicep|forearm|hand_fk|finger|thumb/i.test(bone.name)) {
+          armBoneIndices.add(i);
+        }
+      });
+
+      const sourceIndices = index ? index.array : Array.from({ length: geometry.getAttribute('position').count }, (_, i) => i);
+      const keep = [];
+      for (let i = 0; i < sourceIndices.length; i += 3) {
+        const tri = [sourceIndices[i], sourceIndices[i + 1], sourceIndices[i + 2]];
+        if (tri.length < 3) continue;
+        let good = true;
+        for (const vi of tri) {
+          let armWeight = 0;
+          for (let j = 0; j < 4; j++) {
+            const joint = j === 0 ? skinIndex.getX(vi) : j === 1 ? skinIndex.getY(vi) : j === 2 ? skinIndex.getZ(vi) : skinIndex.getW(vi);
+            const weight = j === 0 ? skinWeight.getX(vi) : j === 1 ? skinWeight.getY(vi) : j === 2 ? skinWeight.getZ(vi) : skinWeight.getW(vi);
+            if (armBoneIndices.has(joint)) {
+              armWeight += weight;
+            }
+          }
+          if (armWeight < 0.5) { good = false; break; }
+        }
+        if (good) keep.push(...tri);
+      }
+
+      if (!keep.length) {
+        o.visible = false;
+        return;
+      }
+
+      const filtered = new THREE.BufferGeometry();
+      for (const name in geometry.attributes) {
+        const attr = geometry.attributes[name];
+        const values = new attr.array.constructor(keep.length * attr.itemSize);
+        for (let i = 0; i < keep.length; i++) {
+          const src = keep[i];
+          for (let c = 0; c < attr.itemSize; c++) {
+            values[i * attr.itemSize + c] = c === 0 ? attr.getX(src) : c === 1 ? attr.getY(src) : c === 2 ? attr.getZ(src) : attr.getW(src);
+          }
+        }
+        filtered.setAttribute(name, new THREE.BufferAttribute(values, attr.itemSize, attr.normalized));
+      }
+      if (geometry.morphAttributes) {
+        // Character has no required morph targets; skinning is preserved above.
+      }
+      filtered.computeBoundingSphere();
+      filtered.computeBoundingBox();
+      o.geometry.dispose();
+      o.geometry = filtered;
+    });
+
+    hideCharacterRifle(clone);
+    return clone;
+  }
+
+  function poseFPSArms(root) {
+    root.traverse(o => {
+      if (!o.isBone) return;
+      const n = o.name || '';
+      if (/shoulder_def\.L/i.test(n)) {
+        o.rotateX(-1.15);
+        o.rotateZ(-0.12);
+      } else if (/shoulder_def\.R/i.test(n)) {
+        o.rotateX(-1.15);
+        o.rotateZ(0.12);
+      } else if (/bicep_def\.L/i.test(n)) {
+        o.rotateX(-0.45);
+      } else if (/bicep_def\.R/i.test(n)) {
+        o.rotateX(-0.45);
+      } else if (/forearm_def\.L/i.test(n)) {
+        o.rotateX(-0.22);
+      } else if (/forearm_def\.R/i.test(n)) {
+        o.rotateX(-0.22);
       }
     });
   }
@@ -193,26 +303,31 @@
       new Promise((resolve, reject) => gltfLoader.load('assets/glock.glb', g => {
         glockModel = g.scene;
         prepareModel(glockModel);
-        // The source model is lengthwise on X, so rotate it to point down -Z.
+        // The supplied Glock is modeled lengthwise on X. Rotate it so the muzzle
+        // points toward the center of the screen (-Z) in first person.
         glockModel.rotation.y = -Math.PI / 2;
         glockModel.scale.setScalar(1.15);
+        glockModel.position.set(0, 0, 0);
         gunGroup.add(glockModel);
         resolve();
       }, undefined, reject)),
       new Promise((resolve, reject) => gltfLoader.load('assets/character.glb', g => {
         characterModel = g.scene;
         prepareModel(characterModel);
+        fpsArmsModel = makeFPSArms(characterModel);
+        fpsArmsModel.scale.setScalar(2.2 / 94.83);
+        fpsArmsModel.rotation.y = Math.PI;
+        poseFPSArms(fpsArmsModel);
+        armsGroup.add(fpsArmsModel);
         resolve();
       }, undefined, reject))
     ]).then(() => {
       assetsReady = true;
-      // Keep the game playable even if the asset-loading indicator lingers.
-      const el = document.getElementById('asset-loading');
-      if (el) el.remove();
+      // Players can join before the GLB finishes downloading. Rebuild their
+      // visuals now so they become visible as soon as the assets are ready.
+      if (typeof syncRemoteMeshes === 'function') syncRemoteMeshes();
     }).catch(err => {
       console.error('GLB asset load failed:', err);
-      const el = document.getElementById('asset-loading');
-      if (el) el.textContent = 'GLB load failed — game still available';
     });
   }
 
@@ -462,42 +577,55 @@
   }
 
   // --- REMOTE PLAYER 3D MESHES ---
+  function buildRemoteCharacter() {
+    if (!characterModel) return null;
+    const visual = THREE.SkeletonUtils.clone(characterModel);
+    hideCharacterRifle(visual);
+    prepareModel(visual);
+    visual.scale.setScalar(2.2 / 94.83);
+    visual.rotation.y = Math.PI;
+
+    // Put the model's actual feet on y=0 instead of assuming the GLB origin is
+    // at the feet. This fixes floating/invisible players caused by the source rig.
+    visual.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(visual);
+    if (!box.isEmpty()) visual.position.y -= box.min.y;
+    return visual;
+  }
+
   function syncRemoteMeshes() {
     for (const pid in players) {
       if (pid === myId) continue;
       if (!remoteMeshes[pid]) {
         const group = new THREE.Group();
-        let visual = null;
-
-        if (characterModel) {
-          visual = THREE.SkeletonUtils.clone(characterModel);
-          // Source character is ~95 units tall; scale to the game's 2.2-unit player.
-          visual.scale.setScalar(2.2 / 94.83);
-          // Face the same forward direction used by the FPS camera.
-          visual.rotation.y = Math.PI;
-          visual.position.y = 0;
-          group.add(visual);
-        }
+        const visual = buildRemoteCharacter();
 
         // Invisible gameplay hitboxes stay simple and reliable even if the GLB changes.
         const body = new THREE.Mesh(
           new THREE.BoxGeometry(0.9, 1.8, 0.65),
           new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
         );
-        body.position.y = 1.05;
+        body.position.y = 0.9;
         body.userData.playerId = pid;
 
         const visor = new THREE.Mesh(
           new THREE.SphereGeometry(0.34, 12, 8),
           new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
         );
-        visor.position.set(0, 1.85, 0);
+        visor.position.set(0, 1.82, 0);
         visor.userData.playerId = pid;
 
+        if (visual) group.add(visual);
         group.add(body, visor);
         group.position.set(0, -50, 0);
         scene.add(group);
         remoteMeshes[pid] = { group, body, visor, visual };
+      } else if (!remoteMeshes[pid].visual && characterModel) {
+        const visual = buildRemoteCharacter();
+        if (visual) {
+          remoteMeshes[pid].group.add(visual);
+          remoteMeshes[pid].visual = visual;
+        }
       }
     }
     for (const pid in remoteMeshes) {
@@ -521,6 +649,28 @@
   }
 
   // --- 3. STARTING & POINTER LOCK HANDLING ---
+  let isPaused = false;
+
+  function setPauseMenu(paused) {
+    isPaused = paused;
+    const overlay = document.getElementById('ui-overlay');
+    const pausePanel = document.getElementById('pause-panel');
+    const banner = document.getElementById('click-to-play-banner');
+
+    if (paused) {
+      document.exitPointerLock?.();
+      overlay.style.display = 'flex';
+      document.getElementById('menu-panel').style.display = 'none';
+      document.getElementById('lobby-panel').style.display = 'none';
+      pausePanel.style.display = 'block';
+      banner.style.display = 'none';
+    } else {
+      overlay.style.display = 'none';
+      pausePanel.style.display = 'none';
+      enterGameControls();
+    }
+  }
+
   function hostStartMatch() {
     if (!isHost) return;
     broadcastFromHost({ type: 'start_match' });
@@ -529,6 +679,7 @@
 
   function startMatchLocal() {
     gameStarted = true;
+    isPaused = false;
     document.getElementById('ui-overlay').style.display = 'none';
     document.getElementById('hud').style.display = 'block';
     respawn();
@@ -536,34 +687,30 @@
   }
 
   function enterGameControls() {
+    if (!gameStarted) return;
+    isPaused = false;
     document.getElementById('ui-overlay').style.display = 'none';
+    document.getElementById('pause-panel').style.display = 'none';
     document.getElementById('click-to-play-banner').style.display = 'none';
     try {
       document.body.requestPointerLock();
-    } catch (e) {
-      // Fallback if browser blocks programmatic pointer lock
-    }
+    } catch (e) {}
     setTimeout(() => {
-      if (gameStarted && !document.pointerLockElement) {
+      if (gameStarted && !isPaused && !document.pointerLockElement) {
         document.getElementById('click-to-play-banner').style.display = 'block';
       }
     }, 150);
   }
 
   document.addEventListener('pointerlockchange', () => {
-    if (!gameStarted) return;
-    const overlay = document.getElementById('ui-overlay');
-    const pausePanel = document.getElementById('pause-panel');
+    if (!gameStarted || isPaused) return;
     const banner = document.getElementById('click-to-play-banner');
-
     if (document.pointerLockElement) {
-      overlay.style.display = 'none';
       banner.style.display = 'none';
     } else {
-      overlay.style.display = 'flex';
-      document.getElementById('menu-panel').style.display = 'none';
-      document.getElementById('lobby-panel').style.display = 'none';
-      pausePanel.style.display = 'block';
+      // Losing pointer lock isn't a match pause. Show the click-to-play hint,
+      // while keeping networking, rendering, and remote players alive.
+      banner.style.display = 'block';
     }
   });
 
@@ -582,8 +729,15 @@
 
   const keys = {};
   document.addEventListener('keydown', (e) => {
+    if (e.code === 'Escape' && gameStarted) {
+      e.preventDefault();
+      if (isPaused) enterGameControls();
+      else setPauseMenu(true);
+      return;
+    }
+
     keys[e.code] = true;
-    if (!gameStarted || !document.pointerLockElement) return;
+    if (!gameStarted || isPaused || !document.pointerLockElement) return;
 
     if (e.code === 'Space' && player.jumps < 2) {
       player.vel.y = 11.5;
@@ -599,7 +753,7 @@
   document.addEventListener('keyup', (e) => keys[e.code] = false);
 
   document.addEventListener('mousemove', (e) => {
-    if (gameStarted && document.pointerLockElement) {
+    if (gameStarted && !isPaused && document.pointerLockElement) {
       player.yaw -= e.movementX * 0.0022;
       player.pitch -= e.movementY * 0.0022;
       player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, player.pitch));
@@ -607,7 +761,7 @@
   });
 
   document.addEventListener('mousedown', (e) => {
-    if (e.button === 0 && gameStarted) {
+    if (e.button === 0 && gameStarted && !isPaused) {
       if (!document.pointerLockElement) {
         enterGameControls();
       } else {
@@ -732,7 +886,7 @@
     const dt = Math.min((now - lastTime) / 1000, 0.05);
     lastTime = now;
 
-    if (gameStarted) {
+    if (gameStarted && !isPaused) {
       const moveDir = new THREE.Vector3();
       const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
       const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
