@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mini Ev.io Party Arena (PeerJS)</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #0b101b; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: white; user-select: none; }
+    #ui-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(11, 16, 27, 0.9); z-index: 10; }
+    .panel { background: #182032; padding: 28px 36px; border-radius: 12px; border: 1px solid #2e3b55; text-align: center; width: 380px; box-shadow: 0 12px 35px rgba(0,0,0,0.6); }
+    h1 { margin: 0 0 8px 0; color: #00f0ff; letter-spacing: 2px; font-size: 26px; }
+    p.sub { font-size: 13px; color: #94a3b8; margin-bottom: 20px; }
+    input { width: 85%; padding: 11px; margin: 6px 0 12px 0; border-radius: 6px; border: 1px solid #3b4b6b; background: #0f1522; color: #00f0ff; font-size: 16px; text-align: center; outline: none; }
+    input:focus { border-color: #00f0ff; }
+    input.code-input { font-size: 22px; letter-spacing: 6px; font-weight: bold; text-transform: uppercase; }
+    button { width: 92%; padding: 12px; margin: 6px 0; border: none; border-radius: 6px; background: #00f0ff; color: #090d16; font-weight: bold; font-size: 15px; cursor: pointer; transition: 0.15s; }
+    button:hover { background: #67f7ff; transform: translateY(-1px); }
+    button.secondary { background: #26334d; color: #e2e8f0; border: 1px solid #3b4b6b; }
+    button.secondary:hover { background: #334466; }
+    .divider { display: flex; align-items: center; text-align: center; color: #64748b; font-size: 12px; margin: 14px 0; }
+    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid #2e3b55; }
+    .divider:not(:empty)::before { margin-right: .75em; }
+    .divider:not(:empty)::after { margin-left: .75em; }
+    #room-code-display { font-size: 36px; font-weight: 900; letter-spacing: 8px; color: #00f0ff; background: #0f1522; padding: 10px 20px; border-radius: 8px; border: 1px dashed #00f0ff; margin: 10px 0; display: inline-block; user-select: all; }
+    #player-list { background: #0f1522; border-radius: 8px; padding: 10px; margin: 12px 0; text-align: left; max-height: 140px; overflow-y: auto; border: 1px solid #2e3b55; }
+    .player-item { padding: 6px 10px; border-bottom: 1px solid #1e293b; font-size: 14px; display: flex; justify-content: space-between; }
+    .player-item:last-child { border-bottom: none; }
+    .badge { background: #00f0ff; color: #090d16; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; }
+    #status-msg { font-size: 13px; color: #fbbf24; margin-top: 10px; min-height: 18px; }
+
+    /* HUD */
+    #hud { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    #crosshair { position: absolute; top: 50%; left: 50%; width: 14px; height: 14px; transform: translate(-50%, -50%); }
+    #crosshair::before, #crosshair::after { content: ''; position: absolute; background: #00f0ff; }
+    #crosshair::before { top: 6px; left: 0; width: 14px; height: 2px; }
+    #crosshair::after { top: 0; left: 6px; width: 2px; height: 14px; }
+    #hitmarker { position: absolute; top: 50%; left: 50%; width: 22px; height: 22px; transform: translate(-50%, -50%) rotate(45deg); opacity: 0; transition: opacity 0.1s; }
+    #hitmarker::before, #hitmarker::after { content: ''; position: absolute; background: #ff3355; }
+    #hitmarker::before { top: 10px; left: 0; width: 22px; height: 2px; }
+    #hitmarker::after { top: 0; left: 10px; width: 2px; height: 22px; }
+    #stats { position: absolute; bottom: 22px; left: 25px; font-size: 20px; font-weight: bold; text-shadow: 1px 1px 3px #000; }
+    .hp-bar { width: 210px; height: 12px; background: #1e293b; border-radius: 6px; overflow: hidden; margin-top: 6px; border: 1px solid #334155; }
+    #hp-fill { width: 100%; height: 100%; background: #00ff88; transition: width 0.15s; }
+    #scoreboard { position: absolute; top: 18px; left: 20px; background: rgba(15, 21, 34, 0.75); padding: 10px 16px; border-radius: 8px; border: 1px solid #2e3b55; font-size: 14px; min-width: 170px; }
+    #scoreboard h3 { margin: 0 0 6px 0; font-size: 12px; color: #00f0ff; letter-spacing: 1px; text-transform: uppercase; }
+    .score-row { display: flex; justify-content: space-between; margin: 3px 0; }
+    #killfeed { position: absolute; top: 18px; right: 20px; text-align: right; font-size: 13px; }
+    .kill-msg { background: rgba(15, 21, 34, 0.8); padding: 5px 10px; border-radius: 4px; margin-bottom: 4px; border-right: 3px solid #ff3355; }
+    #controls-hint { position: absolute; bottom: 22px; right: 25px; font-size: 13px; color: #94a3b8; text-align: right; }
+    #click-to-play-banner { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(0, 240, 255, 0.9); color: #090d16; padding: 14px 28px; border-radius: 8px; font-weight: bold; font-size: 18px; cursor: pointer; pointer-events: auto; z-index: 5; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+</head>
+<body>
+
+<div id="ui-overlay">
+  <!-- STEP 1: MAIN MENU -->
+  <div class="panel" id="menu-panel">
+    <h1>MINI EV.IO</h1>
+    <p class="sub">Peer-to-Peer 3D Party Arena</p>
+    <input type="text" id="nickname-input" placeholder="Enter your nickname" maxlength="12">
+    <button onclick="createParty()">CREATE PARTY</button>
+    <div class="divider">OR JOIN WITH 4-DIGIT CODE</div>
+    <input type="text" id="join-code-input" class="code-input" placeholder="0000" maxlength="4">
+    <button class="secondary" onclick="joinParty()">JOIN PARTY</button>
+    <div id="status-msg"></div>
+  </div>
+
+  <!-- STEP 2: PARTY LOBBY -->
+  <div class="panel" id="lobby-panel" style="display: none;">
+    <h1 style="font-size: 20px;">PARTY LOBBY</h1>
+    <p class="sub" style="margin-bottom: 6px;">Share this 4-digit code with friends:</p>
+    <div id="room-code-display">----</div>
+    <button class="secondary" style="padding: 7px; font-size: 13px; width: 60%;" onclick="copyCode()">Copy Party Code</button>
+    <div id="player-list"></div>
+    <button id="start-btn" onclick="hostStartMatch()" style="display: none;">START MATCH FOR ALL</button>
+    <p id="waiting-text" style="font-size: 13px; color: #94a3b8; display: none;">Waiting for host to start match...</p>
+    <div id="lobby-status" style="font-size: 12px; color: #fbbf24; margin-top: 8px;"></div>
+  </div>
+
+  <!-- STEP 3: PAUSE / LOCK SCREEN -->
+  <div class="panel" id="pause-panel" style="display: none;">
+    <h1>PAUSED</h1>
+    <p class="sub">Party Code: <strong id="pause-code" style="color:#00f0ff;">----</strong></p>
+    <button onclick="enterGameControls()">RESUME MATCH</button>
+  </div>
+</div>
+
+<div id="click-to-play-banner" onclick="enterGameControls()">CLICK HERE TO LOCK MOUSE & PLAY</div>
+
+<div id="hud">
+  <div id="scoreboard">
+    <h3>Scores (Code: <span id="hud-code">----</span>)</h3>
+    <div id="score-rows"></div>
+  </div>
+  <div id="killfeed"></div>
+  <div id="crosshair"></div>
+  <div id="hitmarker"></div>
+  <div id="stats">
+    HP: <span id="hp-text">100</span>
+    <div class="hp-bar"><div id="hp-fill"></div></div>
+  </div>
+  <div id="controls-hint">
+    WASD: Move | SPACE (x2): Double Jump<br>
+    SHIFT: Dash | CLICK: Shoot | ESC: Pause
+  </div>
+</div>
+
+<script>
+  // --- 1. THREE.JS SCENE & ARENA ---
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b101b);
+  scene.fog = new THREE.FogExp2(0x0b101b, 0.014);
+
+  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  const dirLight = new THREE.DirectionalLight(0x00f0ff, 0.85);
+  dirLight.position.set(25, 45, 25);
+  scene.add(dirLight);
+
+  scene.add(new THREE.GridHelper(80, 40, 0x00f0ff, 0x1d2b44));
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(80, 80),
+    new THREE.MeshLambertMaterial({ color: 0x111827 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.05;
+  scene.add(floor);
+
+  const colliders = [];
+  const wallMat = new THREE.MeshLambertMaterial({ color: 0x26334d });
+  const neonMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+
+  function addBox(x, y, z, w, h, d, isNeon = false) {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), isNeon ? neonMat : wallMat);
+    mesh.position.set(x, y, z);
+    scene.add(mesh);
+    colliders.push({
+      minX: x - w / 2, maxX: x + w / 2,
+      minY: y - h / 2, maxY: y + h / 2,
+      minZ: z - d / 2, maxZ: z + d / 2,
+      mesh
+    });
+  }
+
+  // Perimeter & Cover
+  addBox(0, 4, -40, 80, 8, 2);
+  addBox(0, 4, 40, 80, 8, 2);
+  addBox(-40, 4, 0, 2, 8, 80);
+  addBox(40, 4, 0, 2, 8, 80);
+
+  addBox(0, 1.5, 0, 8, 3, 8);
+  addBox(0, 3.1, 0, 8.2, 0.2, 8.2, true);
+  addBox(-14, 1, -14, 5, 2, 5);
+  addBox(14, 1, 14, 5, 2, 5);
+  addBox(-14, 1, 14, 5, 2, 5);
+  addBox(14, 1, -14, 5, 2, 5);
+  addBox(0, 1.5, -22, 10, 3, 2);
+  addBox(0, 1.5, 22, 10, 3, 2);
+
+  // First-person weapon + GLB assets
+  const gunGroup = new THREE.Group();
+  gunGroup.position.set(0.34, -0.31, -0.62);
+  camera.add(gunGroup);
+  scene.add(camera);
+
+  let glockModel = null;
+  let characterModel = null;
+  let assetsReady = false;
+  const gltfLoader = new THREE.GLTFLoader();
+
+  function prepareModel(root) {
+    root.traverse(o => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        if (o.material) {
+          const mats = Array.isArray(o.material) ? o.material : [o.material];
+          mats.forEach(m => { if (m) { m.transparent = false; m.depthWrite = true; } });
+        }
+      }
+    });
+  }
+
+  function loadGameAssets() {
+    return Promise.all([
+      new Promise((resolve, reject) => gltfLoader.load('assets/glock.glb', g => {
+        glockModel = g.scene;
+        prepareModel(glockModel);
+        // The source model is lengthwise on X, so rotate it to point down -Z.
+        glockModel.rotation.y = -Math.PI / 2;
+        glockModel.scale.setScalar(1.15);
+        gunGroup.add(glockModel);
+        resolve();
+      }, undefined, reject)),
+      new Promise((resolve, reject) => gltfLoader.load('assets/character.glb', g => {
+        characterModel = g.scene;
+        prepareModel(characterModel);
+        resolve();
+      }, undefined, reject))
+    ]).then(() => {
+      assetsReady = true;
+      // Keep the game playable even if the asset-loading indicator lingers.
+      const el = document.getElementById('asset-loading');
+      if (el) el.remove();
+    }).catch(err => {
+      console.error('GLB asset load failed:', err);
+      const el = document.getElementById('asset-loading');
+      if (el) el.textContent = 'GLB load failed — game still available';
+    });
+  }
+
+  loadGameAssets();
+
+  // --- 2. PARTY & MULTIPLAYER STATE ---
+  const ROOM_PREFIX = "minievio-party-";
+  let peer = null;
+  let isHost = false;
+  let roomCode = "";
+  let myId = "";
+  let myName = "Player";
+  let gameStarted = false;
+
+  // Host stores connections to all guests; Guests store connection to host
+  const hostConnections = {}; // peerId -> DataConnection
+  let hostConn = null;
+
+  // Roster of all players in party: id -> { id, name, score, color }
+  const players = {};
+  // 3D meshes for remote players: id -> { group, body }
+  const remoteMeshes = {};
+  const playerColors = [0xff3355, 0x00ff88, 0xffaa00, 0xd946ef, 0x38bdf8, 0xf43f5e];
+
+  function getNickname() {
+    const val = document.getElementById('nickname-input').value.trim();
+    return val || "Player" + Math.floor(10 + Math.random() * 89);
+  }
+
+  function generate4DigitCode() {
+    return Math.floor(1000 + Math.random() * 9000).toString();
+  }
+
+  function setStatus(msg) {
+    document.getElementById('status-msg').innerText = msg;
+  }
+
+  // --- CREATE PARTY (HOST) ---
+  function createParty() {
+    myName = getNickname();
+    isHost = true;
+    setStatus("Creating party room...");
+
+    function tryHostCode(attempts) {
+      if (attempts <= 0) {
+        setStatus("Could not generate room. Try again.");
+        return;
+      }
+      const code = generate4DigitCode();
+      const tempPeer = new Peer(ROOM_PREFIX + code);
+
+      tempPeer.on('open', (id) => {
+        peer = tempPeer;
+        roomCode = code;
+        myId = id;
+        players[myId] = { id: myId, name: myName, score: 0, color: playerColors[0] };
+        openLobbyUI();
+      });
+
+      tempPeer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+          tempPeer.destroy();
+          tryHostCode(attempts - 1);
+        } else {
+          setStatus("Network error: " + err.type);
+        }
+      });
+
+      tempPeer.on('connection', (conn) => {
+        hostConnections[conn.peer] = conn;
+        conn.on('open', () => {
+          // Wait for client's 'join' packet
+        });
+        conn.on('data', (data) => handleHostData(conn.peer, data));
+        conn.on('close', () => {
+          const leftName = players[conn.peer] ? players[conn.peer].name : "A player";
+          delete hostConnections[conn.peer];
+          delete players[conn.peer];
+          removeRemoteMesh(conn.peer);
+          broadcastFromHost({ type: 'roster', players, gameStarted });
+          updateLobbyAndScoreboard();
+          addKillfeed(leftName + " left the party");
+        });
+      });
+    }
+
+    tryHostCode(6);
+  }
+
+  // --- JOIN PARTY (CLIENT) ---
+  function joinParty() {
+    const code = document.getElementById('join-code-input').value.trim();
+    if (!/^\d{4}$/.test(code)) {
+      setStatus("Enter a valid 4-digit code.");
+      return;
+    }
+    myName = getNickname();
+    isHost = false;
+    roomCode = code;
+    setStatus("Joining party " + code + "...");
+
+    peer = new Peer();
+    peer.on('open', (id) => {
+      myId = id;
+      hostConn = peer.connect(ROOM_PREFIX + code, { reliable: true });
+
+      const timeout = setTimeout(() => {
+        if (!hostConn.open) setStatus("Party " + code + " not found.");
+      }, 6000);
+
+      hostConn.on('open', () => {
+        clearTimeout(timeout);
+        hostConn.send({ type: 'join', id: myId, name: myName });
+        openLobbyUI();
+      });
+
+      hostConn.on('data', (data) => handleClientData(data));
+
+      hostConn.on('close', () => {
+        alert("Host closed the party.");
+        location.reload();
+      });
+    });
+
+    peer.on('error', (err) => {
+      setStatus("Connection error: " + err.type);
+    });
+  }
+
+  function openLobbyUI() {
+    document.getElementById('menu-panel').style.display = 'none';
+    document.getElementById('lobby-panel').style.display = 'block';
+    document.getElementById('room-code-display').innerText = roomCode;
+    document.getElementById('pause-code').innerText = roomCode;
+    document.getElementById('hud-code').innerText = roomCode;
+
+    if (isHost) {
+      document.getElementById('start-btn').style.display = 'block';
+    } else {
+      document.getElementById('waiting-text').style.display = 'block';
+    }
+    updateLobbyAndScoreboard();
+  }
+
+  function copyCode() {
+    navigator.clipboard.writeText(roomCode);
+    document.getElementById('lobby-status').innerText = "Code " + roomCode + " copied!";
+  }
+
+  // --- DATA RELAY & SYNC ---
+  function broadcastFromHost(payload, excludeId = null) {
+    for (const pid in hostConnections) {
+      if (pid !== excludeId && hostConnections[pid].open) {
+        hostConnections[pid].send(payload);
+      }
+    }
+  }
+
+  function handleHostData(senderId, data) {
+    if (data.type === 'join') {
+      const colorIdx = Object.keys(players).length % playerColors.length;
+      players[senderId] = { id: senderId, name: data.name, score: 0, color: playerColors[colorIdx] };
+      syncRemoteMeshes();
+      updateLobbyAndScoreboard();
+      // Send full roster + whether match already started to everyone
+      broadcastFromHost({ type: 'roster', players, gameStarted });
+      if (gameStarted && hostConnections[senderId]) {
+        hostConnections[senderId].send({ type: 'start_match' });
+      }
+    } else if (data.type === 'move') {
+      updateRemotePlayerTransform(senderId, data);
+      broadcastFromHost(data, senderId);
+    } else if (data.type === 'shoot') {
+      spawnLaser(new THREE.Vector3(...data.start), new THREE.Vector3(...data.end), 0xff3355);
+      broadcastFromHost(data, senderId);
+    } else if (data.type === 'hit') {
+      if (data.targetId === myId) {
+        applyDamage(data.dmg, data.shooterId);
+      } else if (hostConnections[data.targetId]) {
+        hostConnections[data.targetId].send(data);
+      }
+    } else if (data.type === 'kill') {
+      if (players[data.killerId]) players[data.killerId].score++;
+      const kName = players[data.killerId]?.name || "Someone";
+      const vName = players[data.victimId]?.name || "Someone";
+      addKillfeed(kName + " eliminated " + vName);
+      updateLobbyAndScoreboard();
+      broadcastFromHost({ type: 'roster', players, gameStarted });
+      broadcastFromHost({ type: 'killfeed', msg: kName + " eliminated " + vName });
+    }
+  }
+
+  function handleClientData(data) {
+    if (data.type === 'roster') {
+      for (const k in players) delete players[k];
+      Object.assign(players, data.players);
+      syncRemoteMeshes();
+      updateLobbyAndScoreboard();
+      if (data.gameStarted && !gameStarted) {
+        startMatchLocal();
+      }
+    } else if (data.type === 'start_match') {
+      if (!gameStarted) startMatchLocal();
+    } else if (data.type === 'move') {
+      updateRemotePlayerTransform(data.id, data);
+    } else if (data.type === 'shoot') {
+      spawnLaser(new THREE.Vector3(...data.start), new THREE.Vector3(...data.end), 0xff3355);
+    } else if (data.type === 'hit') {
+      if (data.targetId === myId) {
+        applyDamage(data.dmg, data.shooterId);
+      }
+    } else if (data.type === 'killfeed') {
+      addKillfeed(data.msg);
+    }
+  }
+
+  function sendPacket(payload) {
+    if (isHost) {
+      broadcastFromHost(payload);
+    } else if (hostConn && hostConn.open) {
+      hostConn.send(payload);
+    }
+  }
+
+  function updateLobbyAndScoreboard() {
+    const listEl = document.getElementById('player-list');
+    const scoreEl = document.getElementById('score-rows');
+    listEl.innerHTML = "";
+    scoreEl.innerHTML = "";
+
+    const sorted = Object.values(players).sort((a, b) => b.score - a.score);
+    sorted.forEach((p, idx) => {
+      const isMe = p.id === myId ? " (You)" : "";
+      const hostTag = (isHost && p.id === myId) || (!isHost && p.id === ROOM_PREFIX + roomCode) ? '<span class="badge">HOST</span>' : '';
+      listEl.innerHTML += `<div class="player-item"><span>${p.name}${isMe}</span>${hostTag}</div>`;
+      scoreEl.innerHTML += `<div class="score-row"><span>${p.name}${isMe}</span><strong>${p.score}</strong></div>`;
+    });
+  }
+
+  function addKillfeed(msg) {
+    const kf = document.getElementById('killfeed');
+    const div = document.createElement('div');
+    div.className = 'kill-msg';
+    div.innerText = msg;
+    kf.appendChild(div);
+    setTimeout(() => div.remove(), 4000);
+  }
+
+  // --- REMOTE PLAYER 3D MESHES ---
+  function syncRemoteMeshes() {
+    for (const pid in players) {
+      if (pid === myId) continue;
+      if (!remoteMeshes[pid]) {
+        const group = new THREE.Group();
+        let visual = null;
+
+        if (characterModel) {
+          visual = THREE.SkeletonUtils.clone(characterModel);
+          // Source character is ~95 units tall; scale to the game's 2.2-unit player.
+          visual.scale.setScalar(2.2 / 94.83);
+          // Face the same forward direction used by the FPS camera.
+          visual.rotation.y = Math.PI;
+          visual.position.y = 0;
+          group.add(visual);
+        }
+
+        // Invisible gameplay hitboxes stay simple and reliable even if the GLB changes.
+        const body = new THREE.Mesh(
+          new THREE.BoxGeometry(0.9, 1.8, 0.65),
+          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+        );
+        body.position.y = 1.05;
+        body.userData.playerId = pid;
+
+        const visor = new THREE.Mesh(
+          new THREE.SphereGeometry(0.34, 12, 8),
+          new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+        );
+        visor.position.set(0, 1.85, 0);
+        visor.userData.playerId = pid;
+
+        group.add(body, visor);
+        group.position.set(0, -50, 0);
+        scene.add(group);
+        remoteMeshes[pid] = { group, body, visor, visual };
+      }
+    }
+    for (const pid in remoteMeshes) {
+      if (!players[pid]) removeRemoteMesh(pid);
+    }
+  }
+
+  function removeRemoteMesh(pid) {
+    if (remoteMeshes[pid]) {
+      scene.remove(remoteMeshes[pid].group);
+      delete remoteMeshes[pid];
+    }
+  }
+
+  function updateRemotePlayerTransform(pid, data) {
+    if (!remoteMeshes[pid]) syncRemoteMeshes();
+    if (remoteMeshes[pid]) {
+      remoteMeshes[pid].group.position.set(data.x, data.y - player.height, data.z);
+      remoteMeshes[pid].group.rotation.y = data.yaw;
+    }
+  }
+
+  // --- 3. STARTING & POINTER LOCK HANDLING ---
+  function hostStartMatch() {
+    if (!isHost) return;
+    broadcastFromHost({ type: 'start_match' });
+    startMatchLocal();
+  }
+
+  function startMatchLocal() {
+    gameStarted = true;
+    document.getElementById('ui-overlay').style.display = 'none';
+    document.getElementById('hud').style.display = 'block';
+    respawn();
+    enterGameControls();
+  }
+
+  function enterGameControls() {
+    document.getElementById('ui-overlay').style.display = 'none';
+    document.getElementById('click-to-play-banner').style.display = 'none';
+    try {
+      document.body.requestPointerLock();
+    } catch (e) {
+      // Fallback if browser blocks programmatic pointer lock
+    }
+    setTimeout(() => {
+      if (gameStarted && !document.pointerLockElement) {
+        document.getElementById('click-to-play-banner').style.display = 'block';
+      }
+    }, 150);
+  }
+
+  document.addEventListener('pointerlockchange', () => {
+    if (!gameStarted) return;
+    const overlay = document.getElementById('ui-overlay');
+    const pausePanel = document.getElementById('pause-panel');
+    const banner = document.getElementById('click-to-play-banner');
+
+    if (document.pointerLockElement) {
+      overlay.style.display = 'none';
+      banner.style.display = 'none';
+    } else {
+      overlay.style.display = 'flex';
+      document.getElementById('menu-panel').style.display = 'none';
+      document.getElementById('lobby-panel').style.display = 'none';
+      pausePanel.style.display = 'block';
+    }
+  });
+
+  // --- 4. PLAYER PHYSICS, MOVEMENT & SHOOTING ---
+  const player = {
+    pos: new THREE.Vector3(0, 2.2, 30),
+    vel: new THREE.Vector3(0, 0, 0),
+    yaw: 0,
+    pitch: 0,
+    hp: 100,
+    jumps: 0,
+    canDash: true,
+    radius: 0.6,
+    height: 2.2
+  };
+
+  const keys = {};
+  document.addEventListener('keydown', (e) => {
+    keys[e.code] = true;
+    if (!gameStarted || !document.pointerLockElement) return;
+
+    if (e.code === 'Space' && player.jumps < 2) {
+      player.vel.y = 11.5;
+      player.jumps++;
+    }
+    if (e.code === 'ShiftLeft' && player.canDash) {
+      player.canDash = false;
+      const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+      player.vel.addScaledVector(forward, 28);
+      setTimeout(() => player.canDash = true, 1500);
+    }
+  });
+  document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+  document.addEventListener('mousemove', (e) => {
+    if (gameStarted && document.pointerLockElement) {
+      player.yaw -= e.movementX * 0.0022;
+      player.pitch -= e.movementY * 0.0022;
+      player.pitch = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, player.pitch));
+    }
+  });
+
+  document.addEventListener('mousedown', (e) => {
+    if (e.button === 0 && gameStarted) {
+      if (!document.pointerLockElement) {
+        enterGameControls();
+      } else {
+        shoot();
+      }
+    }
+  });
+
+  const lasers = [];
+  function spawnLaser(start, end, color) {
+    const geo = new THREE.BufferGeometry().setFromPoints([start.clone(), end.clone()]);
+    const mat = new THREE.LineBasicMaterial({ color });
+    const line = new THREE.Line(geo, mat);
+    scene.add(line);
+    lasers.push({ line, life: 0.12 });
+  }
+
+  function shoot() {
+    gunGroup.position.z = -0.48;
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+    const wallMeshes = colliders.map(c => c.mesh);
+    const wallHits = raycaster.intersectObjects(wallMeshes);
+
+    const enemyTargets = [];
+    for (const pid in remoteMeshes) {
+      enemyTargets.push(remoteMeshes[pid].body, remoteMeshes[pid].visor);
+    }
+    const enemyHits = raycaster.intersectObjects(enemyTargets);
+
+    let hitDist = 100;
+    let hitPlayerId = null;
+
+    if (wallHits.length > 0) hitDist = wallHits[0].distance;
+    if (enemyHits.length > 0 && enemyHits[0].distance < hitDist) {
+      hitDist = enemyHits[0].distance;
+      hitPlayerId = enemyHits[0].object.userData.playerId;
+    }
+
+    const muzzlePos = new THREE.Vector3();
+    if (glockModel) {
+      // Approximate muzzle at the front of the source model after its X->-Z rotation.
+      glockModel.getWorldPosition(muzzlePos);
+      muzzlePos.add(new THREE.Vector3(0, 0.02, -0.38).applyQuaternion(camera.quaternion));
+    } else {
+      camera.getWorldPosition(muzzlePos);
+      muzzlePos.add(new THREE.Vector3(0.34, -0.31, -0.9).applyQuaternion(camera.quaternion));
+    }
+    const endPos = raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, hitDist);
+
+    spawnLaser(muzzlePos, endPos, 0x00f0ff);
+    sendPacket({ type: 'shoot', start: muzzlePos.toArray(), end: endPos.toArray() });
+
+    if (hitPlayerId) {
+      const hm = document.getElementById('hitmarker');
+      hm.style.opacity = 1;
+      setTimeout(() => hm.style.opacity = 0, 120);
+      const hitObject = enemyHits[0]?.object;
+      const damage = hitObject && hitObject === remoteMeshes[hitPlayerId]?.visor ? 100 : 25;
+      sendPacket({ type: 'hit', targetId: hitPlayerId, shooterId: myId, dmg: damage });
+    }
+  }
+
+  function applyDamage(dmg, shooterId) {
+    player.hp -= dmg;
+    if (player.hp <= 0) {
+      if (isHost) {
+        if (players[shooterId]) players[shooterId].score++;
+        const kName = players[shooterId]?.name || "Someone";
+        const vName = players[myId]?.name || "Someone";
+        addKillfeed(kName + " eliminated " + vName);
+        updateLobbyAndScoreboard();
+        broadcastFromHost({ type: 'roster', players, gameStarted });
+        broadcastFromHost({ type: 'killfeed', msg: kName + " eliminated " + vName });
+      } else {
+        sendPacket({ type: 'kill', killerId: shooterId, victimId: myId });
+      }
+      respawn();
+    }
+    updateHP();
+  }
+
+  function respawn() {
+    const spawns = [
+      new THREE.Vector3(0, 2.2, 32),
+      new THREE.Vector3(0, 2.2, -32),
+      new THREE.Vector3(32, 2.2, 0),
+      new THREE.Vector3(-32, 2.2, 0),
+      new THREE.Vector3(24, 2.2, 24),
+      new THREE.Vector3(-24, 2.2, -24)
+    ];
+    player.pos.copy(spawns[Math.floor(Math.random() * spawns.length)]);
+    player.vel.set(0, 0, 0);
+    player.hp = 100;
+    updateHP();
+  }
+
+  function updateHP() {
+    document.getElementById('hp-text').innerText = player.hp;
+    document.getElementById('hp-fill').style.width = player.hp + '%';
+  }
+
+  // --- 5. GAME LOOP ---
+  let lastTime = performance.now();
+  let netTimer = 0;
+
+  function checkCollision(pos) {
+    for (const c of colliders) {
+      if (pos.x + player.radius > c.minX && pos.x - player.radius < c.maxX &&
+          pos.z + player.radius > c.minZ && pos.z - player.radius < c.maxZ &&
+          pos.y > c.minY && pos.y - player.height < c.maxY) {
+        return c;
+      }
+    }
+    return null;
+  }
+
+  function animate() {
+    requestAnimationFrame(animate);
+    const now = performance.now();
+    const dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+
+    if (gameStarted) {
+      const moveDir = new THREE.Vector3();
+      const forward = new THREE.Vector3(-Math.sin(player.yaw), 0, -Math.cos(player.yaw));
+      const right = new THREE.Vector3(Math.cos(player.yaw), 0, -Math.sin(player.yaw));
+
+      if (document.pointerLockElement) {
+        if (keys['KeyW']) moveDir.add(forward);
+        if (keys['KeyS']) moveDir.sub(forward);
+        if (keys['KeyD']) moveDir.add(right);
+        if (keys['KeyA']) moveDir.sub(right);
+        if (moveDir.lengthSq() > 0) moveDir.normalize();
+      }
+
+      const speed = 13;
+      player.vel.x = THREE.MathUtils.lerp(player.vel.x, moveDir.x * speed, 10 * dt);
+      player.vel.z = THREE.MathUtils.lerp(player.vel.z, moveDir.z * speed, 10 * dt);
+      player.vel.y -= 28 * dt;
+
+      player.pos.x += player.vel.x * dt;
+      const colX = checkCollision(player.pos);
+      if (colX) {
+        player.pos.x = player.vel.x > 0 ? colX.minX - player.radius : colX.maxX + player.radius;
+        player.vel.x = 0;
+      }
+
+      player.pos.z += player.vel.z * dt;
+      const colZ = checkCollision(player.pos);
+      if (colZ) {
+        player.pos.z = player.vel.z > 0 ? colZ.minZ - player.radius : colZ.maxZ + player.radius;
+        player.vel.z = 0;
+      }
+
+      player.pos.y += player.vel.y * dt;
+      if (player.pos.y <= player.height) {
+        player.pos.y = player.height;
+        player.vel.y = 0;
+        player.jumps = 0;
+      }
+      const colY = checkCollision(player.pos);
+      if (colY) {
+        if (player.vel.y < 0) {
+          player.pos.y = colY.maxY + player.height;
+          player.jumps = 0;
+        } else {
+          player.pos.y = colY.minY;
+        }
+        player.vel.y = 0;
+      }
+
+      camera.position.copy(player.pos);
+      camera.rotation.order = 'YXZ';
+      camera.rotation.y = player.yaw;
+      camera.rotation.x = player.pitch;
+      gunGroup.position.z = THREE.MathUtils.lerp(gunGroup.position.z, -0.62, 15 * dt);
+
+      netTimer += dt;
+      if (netTimer > 0.033) {
+        netTimer = 0;
+        sendPacket({
+          type: 'move',
+          id: myId,
+          x: player.pos.x,
+          y: player.pos.y,
+          z: player.pos.z,
+          yaw: player.yaw
+        });
+      }
+    }
+
+    for (let i = lasers.length - 1; i >= 0; i--) {
+      lasers[i].life -= dt;
+      if (lasers[i].life <= 0) {
+        scene.remove(lasers[i].line);
+        lasers.splice(i, 1);
+      }
+    }
+
+    renderer.render(scene, camera);
+  }
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  animate();
+</script>
+</body>
+</html>
